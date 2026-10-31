@@ -356,6 +356,7 @@ header{
   display:grid;place-items:center;box-shadow:inset 0 2px 3px #ffffff9a
 }
 .place-symbol svg{width:26px;height:26px}
+.place-photo{flex:0 0 64px;width:64px;height:64px;object-fit:cover;border-radius:16px;border:1px solid #e8edf5;box-shadow:0 4px 12px #193c6512}
 .place-name{font-size:14px;line-height:1.55;font-weight:900;color:var(--navy);margin:0 0 6px;overflow-wrap:anywhere}
 .place-type{
   display:inline-flex;align-items:center;gap:5px;
@@ -951,8 +952,8 @@ function phoneOf(tags){
   return tags.phone || tags["contact:phone"] ||
     tags["contact:mobile"] || tags.mobile || "";
 }
-function makePlace({id,type,name,enName,gov,address,phone,lat,lon,website}){
-  return {id:String(id),type,name,enName,gov:gov||"",address:address||"",phone:phone||"",lat:lat??null,lon:lon??null,website:website||""};
+function makePlace({id,type,name,enName,gov,address,enAddress,phone,lat,lon,website,photo,specialty,specialtyEn}){
+  return {id:String(id),type,name,enName,gov:gov||"",address:address||"",enAddress:enAddress||"",phone:phone||"",lat:lat??null,lon:lon??null,website:website||"",photo:photo||"",specialty:specialty||"",specialtyEn:specialtyEn||""};
 }
 
 function staticPlaces(){
@@ -1083,10 +1084,26 @@ function staticPlaces(){
     ["hospital","مستشفى مرسى علم المركزي","Marsa Alam Central Hospital","البحر الأحمر","مرسى علم"]
   ];
 
-  return list.map((r,i)=>makePlace({
+  const places = list.map((r,i)=>makePlace({
     id:"seed-"+i,type:r[0],name:r[1],enName:r[2],gov:r[3],
     address:r[4]+ "، "+r[3]
   }));
+
+  // Manually verified doctor listing supplied for Aqrab Doctor.
+  places.push(makePlace({
+    id:"doctor-omar-essam-khater",
+    type:"clinic",
+    name:"د. عمر عصام خاطر",
+    enName:"Dr. Omar Essam Khater",
+    gov:"القليوبية",
+    address:"بيجام، شبرا الخيمة، كوبري بيجام بجوار مسجد العاشر، أعلى صيدلية أشرف",
+    enAddress:"Bijam, Shubra El-Kheima, Bijam Bridge, next to Al-Asher Mosque, above Ashraf Pharmacy",
+    phone:"01006140130",
+    specialty:"أخصائي العلاج الطبيعي لحالات العظام والمخ والأعصاب",
+    specialtyEn:"Physiotherapy Specialist – Orthopedic and Neurological Conditions",
+  }));
+
+  return places;
 }
 
 function normalizePlace(el){
@@ -1124,7 +1141,7 @@ function phoneUrl(phone){
 function placeMatchesQuery(p,q){
   if(!q) return true;
   const normalized = q.toLocaleLowerCase();
-  return [p.name,p.enName,p.gov,p.address,p.phone,TYPE_INFO[p.type]?.ar,TYPE_INFO[p.type]?.en]
+  return [p.name,p.enName,p.gov,p.address,p.enAddress,p.phone,TYPE_INFO[p.type]?.ar,TYPE_INFO[p.type]?.en]
     .filter(Boolean).some(v=>String(v).toLocaleLowerCase().includes(normalized));
 }
 
@@ -1171,14 +1188,15 @@ function render(){
     $("results").innerHTML = shown.map(p=>{
       const t = TYPE_INFO[p.type] || TYPE_INFO.clinic;
       const name = lang==="ar" ? p.name : (p.enName||p.name);
-      const address = [p.address,p.gov].filter((v,i,a)=>v && a.indexOf(v)===i).join("، ");
+      const address = [lang==="ar"?p.address:(p.enAddress||p.address),p.gov].filter((v,i,a)=>v && a.indexOf(v)===i).join(lang==="ar"?"، ": ", ");
+      const specialty = (lang==="ar"?p.specialty:p.specialtyEn) || "";
       const phone = p.phone ? `
         <div class="detail-row">${icon("phone")}<span><a class="phone-link" href="${safe(phoneUrl(p.phone))}">${safe(p.phone)}</a></span></div>` : "";
 
       return `
         <article class="place">
           <div class="place-top">
-            <span class="place-symbol ${t.color}">${icon(t.icon)}</span>
+            ${p.photo ? `<img class="place-photo" src="${p.photo}" alt="${safe(name)}" loading="lazy">` : `<span class="place-symbol ${t.color}">${icon(t.icon)}</span>`}
             <div>
               <h3 class="place-name">${safe(name)}</h3>
               <span class="place-type ${t.css}">${text(t.ar,t.en)}</span>
@@ -1186,6 +1204,7 @@ function render(){
           </div>
           <div class="place-details">
             ${address ? `<div class="detail-row">${icon("pin")}<span>${safe(address)}</span></div>` : ""}
+            ${specialty ? `<div class="detail-row">${icon("doctor")}<span>${safe(specialty)}</span></div>` : ""}
             ${phone}
           </div>
           <div class="place-actions">
