@@ -777,10 +777,13 @@ footer{background:#0e223e;color:#dbe7f7;padding:30px 0 18px}
       <div class="filters-top">
         <label class="filter-search">
           <svg><use href="#i-search"/></svg>
-          <input id="query" type="search" data-placeholder-ar="ابحث باسم المستشفى أو الصيدلية أو المنطقة..." data-placeholder-en="Search hospital, pharmacy or area..." placeholder="ابحث باسم المستشفى أو الصيدلية أو المنطقة...">
+          <input id="query" type="search" data-placeholder-ar="ابحث بالاسم أو التخصص أو المنطقة أو شركة التأمين..." data-placeholder-en="Search name, specialty, area or insurance company..." placeholder="ابحث بالاسم أو التخصص أو المنطقة أو شركة التأمين...">
         </label>
         <select class="select" id="governorate" aria-label="Governorate">
           <option value="">كل المحافظات</option>
+        </select>
+        <select class="select" id="insuranceFilter" aria-label="Insurance company">
+          <option value="">كل شركات التأمين</option>
         </select>
         <select class="select" id="sort">
           <option value="name" data-ar="ترتيب أبجدي" data-en="Alphabetical">ترتيب أبجدي</option>
@@ -952,8 +955,8 @@ function phoneOf(tags){
   return tags.phone || tags["contact:phone"] ||
     tags["contact:mobile"] || tags.mobile || "";
 }
-function makePlace({id,type,name,enName,gov,address,enAddress,phone,lat,lon,website,photo,specialty,specialtyEn}){
-  return {id:String(id),type,name,enName,gov:gov||"",address:address||"",enAddress:enAddress||"",phone:phone||"",lat:lat??null,lon:lon??null,website:website||"",photo:photo||"",specialty:specialty||"",specialtyEn:specialtyEn||""};
+function makePlace({id,type,name,enName,gov,address,enAddress,phone,lat,lon,website,photo,specialty,specialtyEn,insurance}){
+  return {id:String(id),type,name,enName,gov:gov||"",address:address||"",enAddress:enAddress||"",phone:phone||"",lat:lat??null,lon:lon??null,website:website||"",photo:photo||"",specialty:specialty||"",specialtyEn:specialtyEn||"",insurance:Array.isArray(insurance)?insurance:[]};
 }
 
 function staticPlaces(){
@@ -1093,8 +1096,8 @@ function staticPlaces(){
   places.push(makePlace({
     id:"doctor-omar-essam-khater",
     type:"clinic",
-    name:"د. عمر عصام خاطر",
-    enName:"Dr. Omar Essam Khater",
+    name:"د. عمر عصام خاطر - مركز بداية للعلاج الطبيعي",
+    enName:"Dr. Omar Essam Khater – Bedaya Physiotherapy Center",
     gov:"القليوبية",
     address:"بيجام، شبرا الخيمة، كوبري بيجام بجوار مسجد العاشر، أعلى صيدلية أشرف",
     enAddress:"Bijam, Shubra El-Kheima, Bijam Bridge, next to Al-Asher Mosque, above Ashraf Pharmacy",
@@ -1138,20 +1141,31 @@ function phoneUrl(phone){
   return "tel:"+String(phone).replace(/[^\d+]/g,"");
 }
 
+function normalizeSearchText(value){
+  return String(value||"").toLocaleLowerCase()
+    .replace(/[أإآ]/g,"ا").replace(/ة/g,"ه").replace(/ى/g,"ي")
+    .replace(/[ًٌٍَُِّْـ]/g,"").replace(/\s+/g," ").trim();
+}
 function placeMatchesQuery(p,q){
   if(!q) return true;
-  const normalized = q.toLocaleLowerCase();
-  return [p.name,p.enName,p.gov,p.address,p.enAddress,p.phone,TYPE_INFO[p.type]?.ar,TYPE_INFO[p.type]?.en]
-    .filter(Boolean).some(v=>String(v).toLocaleLowerCase().includes(normalized));
+  const normalized = normalizeSearchText(q);
+  const searchable = [p.name,p.enName,p.gov,p.address,p.enAddress,p.phone,
+    p.specialty,p.specialtyEn,...(p.searchKeywords||[]),...(p.insurance||[]),TYPE_INFO[p.type]?.ar,TYPE_INFO[p.type]?.en]
+    .filter(Boolean).map(normalizeSearchText);
+  const haystack=searchable.join(" ");
+  // Match complete multi-word searches even when Arabic definite articles differ.
+  return haystack.includes(normalized) || normalized.split(" ").filter(Boolean).every(token=>haystack.includes(token));
 }
 
 function currentResults(){
   const q = $("query").value.trim();
   const gov = $("governorate").value;
   const sort = $("sort").value;
+  const insurance = $("insuranceFilter")?.value || "";
   let rows = allPlaces.filter(p =>
     (selectedType==="all" || p.type===selectedType) &&
     (!gov || p.gov===gov) &&
+    (!insurance || (p.insurance||[]).includes(insurance)) &&
     placeMatchesQuery(p,q)
   );
 
@@ -1190,6 +1204,7 @@ function render(){
       const name = lang==="ar" ? p.name : (p.enName||p.name);
       const address = [lang==="ar"?p.address:(p.enAddress||p.address),p.gov].filter((v,i,a)=>v && a.indexOf(v)===i).join(lang==="ar"?"، ": ", ");
       const specialty = (lang==="ar"?p.specialty:p.specialtyEn) || "";
+      const insurance = (p.insurance||[]).length ? `<div class="detail-row">${icon("shield-check")}<span>${text("شركات التأمين المتعاقد معها:","Accepted insurance:")} ${safe(p.insurance.join("، "))}</span></div>` : "";
       const phone = p.phone ? `
         <div class="detail-row">${icon("phone")}<span><a class="phone-link" href="${safe(phoneUrl(p.phone))}">${safe(p.phone)}</a></span></div>` : "";
 
@@ -1205,6 +1220,7 @@ function render(){
           <div class="place-details">
             ${address ? `<div class="detail-row">${icon("pin")}<span>${safe(address)}</span></div>` : ""}
             ${specialty ? `<div class="detail-row">${icon("doctor")}<span>${safe(specialty)}</span></div>` : ""}
+            ${insurance}
             ${phone}
           </div>
           <div class="place-actions">
@@ -1304,6 +1320,37 @@ function loadLiveData(){
     if(p) addOrMerge(p);
   }
   allPlaces=[...byId.values()];
+
+  // Guarantee the manually supplied doctor remains searchable after merging
+  // the embedded OpenStreetMap records.
+  const omarId="doctor-omar-essam-khater";
+  const omarData={
+    id:omarId,
+    type:"clinic",
+    name:"د. عمر عصام خاطر - مركز بداية للعلاج الطبيعي",
+    enName:"Dr. Omar Essam Khater – Bedaya Physiotherapy Center",
+    gov:"القليوبية",
+    address:"بيجام، شبرا الخيمة، محافظة القليوبية، كوبري بيجام بجوار مسجد العاشر، أعلى صيدلية أشرف",
+    enAddress:"Bijam, Shubra El-Kheima, Qalyubia Governorate, Bijam Bridge, next to Al-Asher Mosque, above Ashraf Pharmacy",
+    phone:"01006140130",
+    specialty:"أخصائي العلاج الطبيعي لحالات العظام والمخ والأعصاب",
+    specialtyEn:"Physiotherapy Specialist – Orthopedic and Neurological Conditions",
+    insurance:[],
+    searchKeywords:["علاج طبيعي","العلاج الطبيعي","علاج طبيعى","physical therapy","physiotherapy"],
+    photo:""
+  };
+  const omarIndex=allPlaces.findIndex(p=>p.id===omarId);
+  if(omarIndex>=0) allPlaces[omarIndex]={...allPlaces[omarIndex],...omarData};
+  else allPlaces.push(makePlace(omarData));
+
+  const insuranceNames=[...new Set(allPlaces.flatMap(p=>p.insurance||[]))].sort((a,b)=>a.localeCompare(b,lang==="ar"?"ar":"en"));
+  const insuranceSelect=$("insuranceFilter");
+  if(insuranceSelect){
+    const selected=insuranceSelect.value;
+    insuranceSelect.innerHTML=`<option value="">${text("كل شركات التأمين","All insurance companies")}</option>`+
+      insuranceNames.map(name=>`<option value="${safe(name)}">${safe(name)}</option>`).join("");
+    insuranceSelect.value=insuranceNames.includes(selected)?selected:"";
+  }
   loadState="loaded";
   render();
 }
@@ -1329,6 +1376,7 @@ $("governorate").addEventListener("change",()=>{
   render();
 });
 $("sort").addEventListener("change",render);
+$("insuranceFilter").addEventListener("change",()=>{visibleCount=18;render();});
 
 document.querySelectorAll("[data-filter]").forEach(b=>
   b.addEventListener("click",()=>setType(b.dataset.filter))
